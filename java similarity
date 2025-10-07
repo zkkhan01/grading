@@ -1,0 +1,36 @@
+import os
+from difflib import SequenceMatcher
+
+def read_file_strip(filepath):
+    with open(filepath, 'r') as f:
+        # Read and strip whitespace to reduce noise
+        return ''.join(f.read().split())
+
+def grade_by_source_similarity(solution_file, submissions_folder, similarity_threshold=0.92):
+    solution_src = read_file_strip(solution_file)
+
+    grades = {}
+    for filename in os.listdir(submissions_folder):
+        if filename.endswith(".java"):
+            student_file = os.path.join(submissions_folder, filename)
+            student_src = read_file_strip(student_file)
+
+            similarity = SequenceMatcher(None, solution_src, student_src).ratio()
+
+            if similarity >= similarity_threshold:
+                grades[filename] = 100
+            else:
+                grades[filename] = 50
+                print(f"Source code mismatch in {filename} (similarity: {similarity:.2f})")
+
+    return grades
+
+if __name__ == '__main__':
+    solution_file = input("Enter the solution .java file path: ").strip()
+    submissions_folder = input("Enter the folder path where student .java files are: ").strip()
+
+    final_grades = grade_by_source_similarity(solution_file, submissions_folder)
+
+    print("\nFinal grades:")
+    for submission, grade in final_grades.items():
+        print(f"{submission}: Grade = {grade}")
