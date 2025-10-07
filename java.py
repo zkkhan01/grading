@@ -1,40 +1,39 @@
 import os
 import subprocess
 
-# Paths (update these to match your folder structure)
-solution_file = "Solution.java"
-student_folder = "student_submissions"  # Folder containing student .java files
+student_folder = "student_submissions"
 
-# Compile and run the solution file to check expected behavior (optional)
 def run_java(filepath):
     basename = os.path.splitext(os.path.basename(filepath))[0]
     try:
-        # Compile the Java file
         compile_proc = subprocess.run(["javac", filepath], capture_output=True, text=True)
         if compile_proc.returncode != 0:
-            return False, compile_proc.stderr
-        # Run the Java file
+            return "compile_error", compile_proc.stderr
         run_proc = subprocess.run(["java", "-cp", os.path.dirname(filepath), basename], capture_output=True, text=True)
         if run_proc.returncode != 0:
-            return False, run_proc.stderr
-        return True, run_proc.stdout
+            return "runtime_error", run_proc.stderr
+        return "success", run_proc.stdout
     except Exception as e:
-        return False, str(e)
+        return "exception", str(e)
 
-# Grade student submissions
 grades = {}
 
 for filename in os.listdir(student_folder):
     if filename.endswith(".java"):
         student_file = os.path.join(student_folder, filename)
         print(f"Grading {filename}...")
-        success, output = run_java(student_file)
-        if success:
+        status, output = run_java(student_file)
+        if status == "success":
             grades[filename] = 100
+        elif status == "compile_error":
+            grades[filename] = 50
+            print(f"Compilation Error in {filename}:\n{output}")
+        elif status == "runtime_error":
+            grades[filename] = 75
+            print(f"Runtime Error in {filename}:\n{output}")
         else:
             grades[filename] = 0
-            print(f"Error for {filename}: {output}")
+            print(f"Unexpected Error in {filename}:\n{output}")
 
-# Print grades
 for fname, grade in grades.items():
     print(f"{fname}: {grade}")
