@@ -1,36 +1,86 @@
 import os
-import subprocess
+import importlib.util
+import doctest
+import sys
+import re
+from io import StringIO
+import contextlib
 
-def grade_submissions(solution_file, test_file, submissions_folder, base_name):
-    """
-    Grades multiple student submissions by renaming them one by one to the required base_name and running the test file.
-    Prints the results directly to the terminal.
-    
-    Args:
-      solution_file (str): Path to the solution file (optional for manual checking).
-      test_file (str): Path to the test file that imports the student code using base_name.
-      submissions_folder (str): Folder containing all student submission files.
-      base_name (str): The base name the student submission must be renamed to (e.g. hw1.py).
-    """
+def renameFiles(hwn):
+    for file in os.listdir(hwn):
+        extract = re.findall(r'- (\D.*)\.py', file)
+        try:
+            new_name = re.sub(r'\W', '', extract[0]) + '.py'
+        except:
+            continue
+        src = os.path.join(hwn, file)
+        dst = os.path.join(hwn, new_name)
+        os.rename(src, dst)
+
+
+def grade_submission_doctest(submission_path, test_file, base_name, submissions_folder):
+    temp_path = os.path.join(submissions_folder, base_name)
+
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
+
+    os.rename(submission_path, temp_path)
+
+    try:
+        sys.path.insert(0, submissions_folder)
+
+        if base_name[:-3] in sys.modules:
+            del sys.modules[base_name[:-3]]
+
+        importlib.invalidate_caches()
+        module = importlib.import_module(base_name[:-3])
+
+        output_buffer = StringIO()
+        with contextlib.redirect_stdout(output_buffer):
+            failure_count, test_count = doctest.testfile(
+                test_file, module_relative=False, verbose=False, optionflags=doctest.ELLIPSIS
+            )
+        output = output_buffer.getvalue()
+
+        grade = 100 if failure_count == 0 else 0
+
+        if failure_count > 0:
+            print(f"\n*** Test failures for student: {os.path.basename(submission_path)} ***")
+            print(output)
+            print(f"Failed {failure_count} out of {test_count} tests.\n")
+
+    except Exception as e:
+        print(f"Error grading {os.path.basename(submission_path)}: {e}")
+        grade = 0
+    finally:
+        sys.path.remove(submissions_folder)
+        os.rename(temp_path, submission_path)
+
+    return grade
+
+
+def grade_submissions(test_file, submissions_folder, base_name):
     submissions = [f for f in os.listdir(submissions_folder) if f.endswith('.py')]
     grades = {}
 
     for submission in submissions:
-        orig_path = os.path.join(submissions_folder, submission)
-        temp_path = os.path.join(submissions_folder, base_name)
+        submission_path = os.path.join(submissions_folder, submission)
+        print(f"Grading submission: {submission}")
+        grade = grade_submission_doctest(submission_path, test_file, base_name, submissions_folder)
+        grades[submission] = grade
 
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+    return grades
 
-        os.rename(orig_path, temp_path)
 
-        try:
-            result = subprocess.run(['python', test_file], capture_output=True, text=True, timeout=10)
-            grades[submission] = 100 if result.returncode == 0 else 0
-        except Exception:
-            grades[submission] = 0
+if __name__ == '__main__':
+    submissions_folder = input("Enter the folder path where the submission files are: ").strip()
+    test_file = input("Enter the test file path: ").strip()
+    base_name = input("Enter the base file name to rename submissions to (e.g., hw0.py): ").strip()
 
-        os.rename(temp_path, orig_path)
+    renameFiles(submissions_folder)
+    final_grades = grade_submissions(test_file, submissions_folder, base_name)
 
-    for student, grade in grades.items():
-        print(f"{student}: {grade}")
+    print("\nFinal grades:")
+    for submission, grade in final_grades.items():
+        print(f"{submission}: Grade = {grade}")
+
