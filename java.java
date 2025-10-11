@@ -1,88 +1,97 @@
 import java.io.*;
+import java.nio.file.*;
 import java.util.*;
 
 public class Grader {
+    public static void main(String[] args) throws IOException {
+        Scanner sc = new Scanner(System.in);
 
-    // Compile a Java file
-    public static String compileJava(File file) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder("javac", file.getAbsolutePath());
-            Process process = pb.start();
-            process.waitFor();
+        System.out.print("Enter the folder path where the submission files are: ");
+        String submissionsFolder = sc.nextLine().trim();
 
-            if (process.exitValue() != 0) {
-                String error = new String(process.getErrorStream().readAllBytes());
-                return "compile_error:" + error;
-            }
-            return "success";
-        } catch (Exception e) {
-            return "exception:" + e.getMessage();
+        File folder = new File(submissionsFolder);
+        if (!folder.exists() || !folder.isDirectory()) {
+            System.out.println("Invalid folder path.");
+            return;
         }
+
+        Map<String, Integer> finalGrades = gradeSubmissions(folder);
+        System.out.println("\nFinal Grades:");
+        finalGrades.forEach((k, v) -> System.out.println(k + ": Grade = " + v));
     }
 
-    // Run a Java file (by class name)
-    public static String runJava(File file) {
-        try {
-            String className = file.getName().replace(".java", "");
-            ProcessBuilder pb = new ProcessBuilder("java", "-cp", file.getParent(), className);
-            Process process = pb.start();
-            process.waitFor();
-
-            if (process.exitValue() != 0) {
-                String error = new String(process.getErrorStream().readAllBytes());
-                return "runtime_error:" + error;
-            }
-            String output = new String(process.getInputStream().readAllBytes());
-            return "success:" + output;
-        } catch (Exception e) {
-            return "exception:" + e.getMessage();
-        }
-    }
-
-    // Grade student submissions
     public static Map<String, Integer> gradeSubmissions(File folder) {
-        Map<String, Integer> grades = new HashMap<>();
+        Map<String, Integer> grades = new LinkedHashMap<>();
 
-        File[] files = folder.listFiles((dir, name) -> name.endsWith(".java"));
-        if (files == null) return grades;
+        // Create a temp folder for grading one file at a time
+        File tempDir = new File(folder, "_tempGrade");
+        tempDir.mkdir();
 
-        for (File file : files) {
-            System.out.println("Grading " + file.getName() + "...");
-            String compileStatus = compileJava(file);
+        for (File file : Objects.requireNonNull(folder.listFiles())) {
+            if (!file.getName().endsWith(".java")) continue;
+            System.out.println("\nGrading " + file.getName() + "...");
 
-            if (compileStatus.startsWith("compile_error")) {
-                System.out.println("Compilation Error: " + compileStatus);
-                grades.put(file.getName(), 50);
-                continue;
-            }
+            try {
+                // Clean temp directory
+                for (File f : Objects.requireNonNull(tempDir.listFiles())) f.delete();
 
-            String runStatus = runJava(file);
-            if (runStatus.startsWith("success:")) {
-                System.out.println("Output: " + runStatus.substring(8));
-                grades.put(file.getName(), 100);
-            } else if (runStatus.startsWith("runtime_error")) {
-                System.out.println("Runtime Error: " + runStatus);
-                grades.put(file.getName(), 75);
-            } else {
-                System.out.println("Unexpected Error: " + runStatus);
+                // Copy student's file into tempDir as OrderedSequentialSearchST.java
+                Path dest = Paths.get(tempDir.getAbsolutePath(), "OrderedSequentialSearchST.java");
+                Files.copy(file.toPath(), dest, StandardCopyOption.REPLACE_EXISTING);
+
+                // Compile + run
+                String status = runJavaFile(dest.toFile());
+                int score = switch (status) {
+                    case "success" -> 100;
+                    case "runtime_error" -> 75;
+                    case "compile_error" -> 50;
+                    default -> 0;
+                };
+                grades.put(file.getName(), score);
+
+            } catch (Exception e) {
+                System.out.println("Error grading " + file.getName() + ": " + e.getMessage());
                 grades.put(file.getName(), 0);
             }
         }
 
+        // Clean up temp folder
+        for (File f : Objects.requireNonNull(tempDir.listFiles())) f.delete();
+        tempDir.delete();
+
         return grades;
     }
 
-    public static void main(String[] args) throws IOException {
-        Scanner sc = new Scanner(System.in);
-        System.out.print("Enter submissions folder path: ");
-        String folderPath = sc.nextLine();
+    private static String runJavaFile(File javaFile) {
+        try {
+            Process compile = new ProcessBuilder("javac", javaFile.getAbsolutePath())
+                    .directory(javaFile.getParentFile())
+                    .redirectErrorStream(true)
+                    .start();
+            String compileOut = new String(compile.getInputStream().readAllBytes());
+            int compileExit = compile.waitFor();
 
-        File folder = new File(folderPath);
-        Map<String, Integer> results = gradeSubmissions(folder);
+            if (compileExit != 0) {
+                System.out.println("Compilation Error:\n" + compileOut);
+                return "compile_error";
+            }
 
-        System.out.println("\nFinal Grades:");
-        for (Map.Entry<String, Integer> entry : results.entrySet()) {
-            System.out.println(entry.getKey() + ": " + entry.getValue());
+            Process run = new ProcessBuilder("java", "-cp", javaFile.getParent(), "OrderedSequentialSearchST")
+                    .redirectErrorStream(true)
+                    .start();
+            String runOut = new String(run.getInputStream().readAllBytes());
+            int runExit = run.waitFor();
+
+            if (runExit != 0) {
+                System.out.println("Runtime Error:\n" + runOut);
+                return "runtime_error";
+            }
+
+            System.out.println("Output:\n" + runOut);
+            return "success";
+        } catch (Exception e) {
+            System.out.println("Unexpected error: " + e.getMessage());
+            return "exception";
         }
     }
 }
