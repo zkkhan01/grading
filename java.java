@@ -3,95 +3,125 @@ import java.nio.file.*;
 import java.util.*;
 
 public class Grader {
-    public static void main(String[] args) throws IOException {
-        Scanner sc = new Scanner(System.in);
+
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
 
         System.out.print("Enter the folder path where the submission files are: ");
-        String submissionsFolder = sc.nextLine().trim();
+        String submissionsFolderPath = scanner.nextLine().trim();
 
-        File folder = new File(submissionsFolder);
-        if (!folder.exists() || !folder.isDirectory()) {
+        System.out.print("Enter the solution file path: ");
+        String solutionFilePath = scanner.nextLine().trim();
+
+        File submissionsFolder = new File(submissionsFolderPath);
+        File solutionFile = new File(solutionFilePath);
+
+        if (!submissionsFolder.exists() || !submissionsFolder.isDirectory()) {
             System.out.println("Invalid folder path.");
             return;
         }
 
-        Map<String, Integer> finalGrades = gradeSubmissions(folder);
-        System.out.println("\nFinal Grades:");
-        finalGrades.forEach((k, v) -> System.out.println(k + ": Grade = " + v));
-    }
-
-    public static Map<String, Integer> gradeSubmissions(File folder) {
-        Map<String, Integer> grades = new LinkedHashMap<>();
-
-        // Create a temp folder for grading one file at a time
-        File tempDir = new File(folder, "_tempGrade");
-        tempDir.mkdir();
-
-        for (File file : Objects.requireNonNull(folder.listFiles())) {
-            if (!file.getName().endsWith(".java")) continue;
-            System.out.println("\nGrading " + file.getName() + "...");
-
-            try {
-                // Clean temp directory
-                for (File f : Objects.requireNonNull(tempDir.listFiles())) f.delete();
-
-                // Copy student's file into tempDir as OrderedSequentialSearchST.java
-                Path dest = Paths.get(tempDir.getAbsolutePath(), "OrderedSequentialSearchST.java");
-                Files.copy(file.toPath(), dest, StandardCopyOption.REPLACE_EXISTING);
-
-                // Compile + run
-                String status = runJavaFile(dest.toFile());
-                int score = switch (status) {
-                    case "success" -> 100;
-                    case "runtime_error" -> 75;
-                    case "compile_error" -> 50;
-                    default -> 0;
-                };
-                grades.put(file.getName(), score);
-
-            } catch (Exception e) {
-                System.out.println("Error grading " + file.getName() + ": " + e.getMessage());
-                grades.put(file.getName(), 0);
-            }
+        if (!solutionFile.exists()) {
+            System.out.println("Solution file not found.");
+            return;
         }
 
-        // Clean up temp folder
-        for (File f : Objects.requireNonNull(tempDir.listFiles())) f.delete();
-        tempDir.delete();
+        System.out.println("\nRunning solution file...");
+        if (!compileAndRun(solutionFile, true)) {
+            System.out.println("Solution file did not compile or run correctly. Aborting.");
+            return;
+        }
 
-        return grades;
+        File[] submissionFiles = submissionsFolder.listFiles((dir, name) -> name.endsWith(".java"));
+        if (submissionFiles == null || submissionFiles.length == 0) {
+            System.out.println("No Java files found in submissions folder.");
+            return;
+        }
+
+        for (File submission : submissionFiles) {
+            System.out.println("\nGrading " + submission.getName() + "...");
+            compileAndRun(submission, false);
+        }
     }
 
-    private static String runJavaFile(File javaFile) {
+    private static boolean compileAndRun(File javaFile, boolean isSolution) {
         try {
-            Process compile = new ProcessBuilder("javac", javaFile.getAbsolutePath())
-                    .directory(javaFile.getParentFile())
-                    .redirectErrorStream(true)
-                    .start();
-            String compileOut = new String(compile.getInputStream().readAllBytes());
+            // Detect public class name
+            String className = getPublicClassName(javaFile);
+            if (className == null) {
+                System.out.println("Could not detect public class name in " + javaFile.getName());
+                return false;
+            }
+
+            // Create isolated temp directory
+            File tempDir = Files.createTempDirectory("grader").toFile();
+            File tempFile = new File(tempDir, className + ".java");
+            Files.copy(javaFile.toPath(), tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+
+            // Classpath includes project src and stdlib
+            String classpath = System.getProperty("user.dir") + File.pathSeparator + "..\\src";
+
+            // Compile
+            ProcessBuilder compileProcess = new ProcessBuilder(
+                "javac", "--add-modules", "java.desktop",
+                "-cp", classpath + File.pathSeparator + System.getProperty("user.dir"),
+                tempFile.getAbsolutePath()
+            );
+            compileProcess.redirectErrorStream(true);
+            Process compile = compileProcess.start();
+            printProcessOutput(compile);
             int compileExit = compile.waitFor();
 
             if (compileExit != 0) {
-                System.out.println("Compilation Error:\n" + compileOut);
-                return "compile_error";
+                System.out.println("Compilation Error (" + (isSolution ? "solution" : "student") + "):");
+                return false;
             }
 
-            Process run = new ProcessBuilder("java", "-cp", javaFile.getParent(), "OrderedSequentialSearchST")
-                    .redirectErrorStream(true)
-                    .start();
-            String runOut = new String(run.getInputStream().readAllBytes());
-            int runExit = run.waitFor();
+            // Run with assertions enabled
+            ProcessBuilder runProcess = new ProcessBuilder(
+                "java",
+                "-ea:" + className,
+                "-ea:classcode." + className,
+                "--add-modules", "java.desktop",
+                "-cp", classpath + File.pathSeparator + tempDir.getAbsolutePath(),
+                className
+            );
+            runProcess.redirectErrorStream(true);
+            Process run = runProcess.start();
+            printProcessOutput(run);
+            run.waitFor();
 
-            if (runExit != 0) {
-                System.out.println("Runtime Error:\n" + runOut);
-                return "runtime_error";
-            }
-
-            System.out.println("Output:\n" + runOut);
-            return "success";
+            return true;
         } catch (Exception e) {
-            System.out.println("Unexpected error: " + e.getMessage());
-            return "exception";
+            System.out.println("Error running " + (isSolution ? "solution" : "student") + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    // Extracts the public class name from a Java source file
+    private static String getPublicClassName(File javaFile) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new FileReader(javaFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.startsWith("public class ")) {
+                    String[] parts = line.split("\\s+");
+                    if (parts.length >= 3) {
+                        return parts[2].split("<")[0].trim();
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    // Prints combined process output (stdout + stderr)
+    private static void printProcessOutput(Process process) throws IOException {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                System.out.println(line);
+            }
         }
     }
 }
