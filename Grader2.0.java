@@ -1,4 +1,8 @@
 /*rename to Grader.java*/
+/*
+>javac --add-modules java.desktop -cp ..\src Grader.java
+>java -ea --add-modules java.desktop -cp .;..\out;..\src Grader
+*/
 
 import java.io.*;
 import java.nio.file.*;
@@ -55,7 +59,7 @@ public class Grader {
         try {
             boolean success = compileAndRun(submission, false);
             if (success) {
-                return "Passed";
+                return "Passed - 100%";
             } else {
                 return "Compilation or Runtime Error";
             }
@@ -109,15 +113,31 @@ public class Grader {
             );
             runProcess.redirectErrorStream(true);
             Process run = runProcess.start();
-            printProcessOutput(run);
-            int runExit = run.waitFor();
+            String runOutput = captureProcessOutput(run);
+	    System.out.print(runOutput); // still print everything
 
-            return runExit == 0;
+	    boolean hasFailure = runOutput.contains("Failed") || runOutput.contains("Exception"); 
+
+	    int runExit = run.waitFor();
+
+	    return runExit == 0 && !hasFailure;
+
         } catch (Exception e) {
             System.out.println("Error running " + (isSolution ? "solution" : "student") + ": " + e.getMessage());
             return false;
         }
     }
+
+    private static String captureProcessOutput(Process process) throws IOException {
+    	StringBuilder output = new StringBuilder();
+    	try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+        	String line;
+        	while ((line = reader.readLine()) != null) {
+            	output.append(line).append(System.lineSeparator());
+        	}
+    	}
+    	return output.toString();
+}
 
     private static String getPublicClassName(File javaFile) throws IOException {
         try (BufferedReader reader = new BufferedReader(new FileReader(javaFile))) {
