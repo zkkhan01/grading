@@ -1,4 +1,7 @@
 /*rename to Grader.java*/
+
+// place in project folder
+
 /*
 >javac --add-modules java.desktop -cp ..\src Grader.java
 >java -ea --add-modules java.desktop -cp .;..\out;..\src Grader
