@@ -1,8 +1,16 @@
+/*
+>javac --add-modules java.desktop -cp ..\src Grader.java
+>java -ea --add-modules java.desktop -cp .;..\out;..\src Grader
+*/
+
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 
 public class Grader {
+
+    // Store all student results
+    private static final List<String[]> results = new ArrayList<>();
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -40,7 +48,23 @@ public class Grader {
 
         for (File submission : submissionFiles) {
             System.out.println("\nGrading " + submission.getName() + "...");
-            compileAndRun(submission, false);
+            String result = gradeStudent(submission);
+            results.add(new String[]{submission.getName(), result});
+        }
+
+        printSummary();
+    }
+
+    private static String gradeStudent(File submission) {
+        try {
+            boolean success = compileAndRun(submission, false);
+            if (success) {
+                return "Passed";
+            } else {
+                return "Compilation or Runtime Error";
+            }
+        } catch (Exception e) {
+            return "Error: " + e.getMessage();
         }
     }
 
@@ -89,9 +113,9 @@ public class Grader {
             runProcess.redirectErrorStream(true);
             Process run = runProcess.start();
             printProcessOutput(run);
-            run.waitFor();
+            int runExit = run.waitFor();
 
-            return true;
+            return runExit == 0;
         } catch (Exception e) {
             System.out.println("Error running " + (isSolution ? "solution" : "student") + ": " + e.getMessage());
             return false;
@@ -123,5 +147,21 @@ public class Grader {
                 System.out.println(line);
             }
         }
+    }
+
+    // Prints the final summary of grades
+    private static void printSummary() {
+        System.out.println("\n=====================================");
+        System.out.println("           GRADING SUMMARY");
+        System.out.println("=====================================");
+        System.out.printf("%-50s | %-30s%n", "Student File", "Result");
+        System.out.println("---------------------------------------------------------------------------------");
+
+        for (String[] entry : results) {
+            System.out.printf("%-50s | %-30s%n", entry[0], entry[1]);
+        }
+
+        System.out.println("=====================================");
+        System.out.println("Total Students Graded: " + results.size());
     }
 }
