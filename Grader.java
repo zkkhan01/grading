@@ -1,5 +1,6 @@
 /*
 >javac --add-modules java.desktop -cp ..\src Grader.java
+>javac --add-modules java.desktop -cp ..\src Grader.java
 >java -ea --add-modules java.desktop -cp .;..\out;..\src Grader
 */
 
